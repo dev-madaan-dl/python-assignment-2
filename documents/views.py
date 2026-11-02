@@ -1,10 +1,13 @@
-from rest_framework.views import APIView
-from rest_framework.response import Response
+from django.contrib.auth import authenticate
 from rest_framework import status
 from rest_framework.authtoken.models import Token
-from rest_framework.permissions import AllowAny
 from rest_framework.pagination import PageNumberPagination
-from django.contrib.auth import authenticate
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from documents.pagination import CustomPageNumberPagination
+
 from .models import Document, QueryLog, UserSession
 from .serializers import DocumentSerializer, QueryLogSerializer, RegisterSerializer
 
@@ -28,7 +31,7 @@ class LoginView(APIView):
     def post(self, request):
         username = request.data.get('username')
         password = request.data.get('password')
-        user = authenticate(username=username, password=password)
+        user = authenticate(**{"username": username, "password": password})
         if user:
             token, _ = Token.objects.get_or_create(user=user)
             UserSession.objects.get_or_create(user=user)
@@ -37,6 +40,7 @@ class LoginView(APIView):
 
 
 class DocumentListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         documents = Document.objects.filter(user=request.user).order_by('-created_at')
@@ -54,6 +58,7 @@ class DocumentListCreateView(APIView):
 
 
 class DocumentDetailView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def get_object(self, pk, user):
         try:
@@ -77,10 +82,11 @@ class DocumentDetailView(APIView):
 
 
 class QueryView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         query_text = request.data.get('query', '')
-        documents = Document.objects.filter(title__icontains=query_text).order_by('-created_at')
+        documents = Document.objects.filter(user=request.user, title__icontains=query_text).order_by('-created_at')
         result_ids = list(documents.values_list('id', flat=True))
         QueryLog.objects.create(
             user=request.user,
@@ -96,10 +102,11 @@ class QueryView(APIView):
 
 
 class QueryHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         queries = QueryLog.objects.filter(user=request.user).order_by('-created_at')
-        paginator = PageNumberPagination()
+        paginator = CustomPageNumberPagination()
         page = paginator.paginate_queryset(queries, request)
         serializer = QueryLogSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
